@@ -38,6 +38,10 @@ import {
   updatePassenger,
 } from "../controllers/passenger.controller.js";
 import { adminGetUser, adminListUsers } from "../controllers/user.controller.js";
+import {
+  adminListComplaints,
+  adminUpdateComplaintStatus,
+} from "../controllers/complaint.controller.js";
 
 const router = Router();
 
@@ -45,6 +49,9 @@ router.use(requireAuth, requireAdmin);
 
 router.get("/users", adminListUsers);
 router.get("/users/:id", adminGetUser);
+
+router.get("/complaints", adminListComplaints);
+router.patch("/complaints/:id", adminUpdateComplaintStatus);
 
 router.post("/captains", registerCaptain);
 router.get("/captains", getAllCaptains);
