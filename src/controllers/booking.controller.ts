@@ -135,7 +135,7 @@ export const adminUpdateBookingStatus = catchAsync(async (req: Request, res: Res
   if (!booking) throw new ApiError(404, "Booking not found");
 
   if (status === "Approved" || status === "Canceled" || status === "Completed") {
-    const user = booking.userId as { _id?: string; email?: string; fullName?: string } | undefined;
+    const user = booking.userId as unknown as { _id?: string; email?: string; fullName?: string } | undefined;
     if (user?._id) {
       const titleByStatus: Record<string, string> = {
         Approved: "Booking Approved",
