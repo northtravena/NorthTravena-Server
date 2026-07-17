@@ -55,8 +55,9 @@ export const createBooking = catchAsync(async (req: Request, res: Response) => {
     throw new ApiError(400, "pickupDate and pickupTime are required");
   }
 
-  // Auto-approve oneWay and roundTrip bookings, but keep monthly as Pending for admin approval
-  const initialStatus = (tripType === "oneWay" || tripType === "roundTrip") ? "Approved" : "Pending";
+  // New bookings start as Pending. The matching and dispatch are handled dynamically.
+  const initialStatus = "Pending";
+
 
   const doc = await Booking.create({
     userId: parseObjectId(req.user.id, "user"),

@@ -189,8 +189,10 @@ router.post("/bookings", requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // Auto-approve oneWay and roundTrip bookings, keep monthly as Pending
-    const status = (tripType === "oneWay" || tripType === "roundTrip") ? "Approved" : "Pending";
+    // New bookings start as Pending.
+    const status: string = "Pending";
+
+
 
     // Create booking document
     const bookingData: Record<string, unknown> = {
@@ -325,12 +327,65 @@ router.get("/bookings", requireAuth, requireAdmin, async (req: Request, res: Res
       }
     }
 
+    // ── 3.5. Batch-fetch feedbacks ────────────────────────────────────────────
+    const feedbackMap: Record<string, Record<string, unknown>> = {};
+    const bookingIds = bookings.map((b) => b.id).filter(Boolean) as string[];
+    if (bookingIds.length > 0) {
+      const chunkSize = 30;
+      try {
+        for (let i = 0; i < bookingIds.length; i += chunkSize) {
+          const chunk = bookingIds.slice(i, i + chunkSize);
+          const fbSnapshot = await db
+            .collection("feedbacks")
+            .where("booking_id", "in", chunk)
+            .get();
+          fbSnapshot.forEach((doc) => {
+            const data = doc.data();
+            if (data.booking_id) {
+              feedbackMap[data.booking_id] = { id: doc.id, ...data };
+            }
+          });
+        }
+      } catch (err) {
+        console.error("[Firebase bookings] Failed to batch-fetch feedbacks:", err);
+      }
+    }
+
+    // ── 3.7. Batch-fetch matched captains ──────────────────────────────────────
+    const captainMap: Record<string, Record<string, unknown>> = {};
+    const captainIds = [
+      ...new Set(
+        bookings
+          .map((b) => b.acceptedCaptainId as string | undefined)
+          .filter((id): id is string => !!id)
+      ),
+    ];
+    if (captainIds.length > 0) {
+      const chunkSize = 30;
+      try {
+        for (let i = 0; i < captainIds.length; i += chunkSize) {
+          const chunk = captainIds.slice(i, i + chunkSize);
+          const refs = chunk.map((cid) => db.collection("captains").doc(cid));
+          const docs = await db.getAll(...refs);
+          docs.forEach((doc) => {
+            if (doc.exists) {
+              captainMap[doc.id] = { id: doc.id, ...doc.data() } as Record<string, unknown>;
+            }
+          });
+        }
+      } catch (err) {
+        console.error("[Firebase bookings] Failed to batch-fetch captains:", err);
+      }
+    }
+
     // ── 4. Enrich bookings ────────────────────────────────────────────────────
     const enriched = bookings.map((b) => {
       const uid = b.userId as string | undefined;
       const vid = b.vehicleId as string | undefined;
       const user = uid ? userMap[uid] : undefined;
       const vehicle = vid ? vehicleMap[vid] : undefined;
+      const feedback = b.id ? feedbackMap[b.id as string] : undefined;
+      const captain = b.acceptedCaptainId ? captainMap[b.acceptedCaptainId as string] : undefined;
 
       return {
         ...b,
@@ -343,6 +398,10 @@ router.get("/bookings", requireAuth, requireAdmin, async (req: Request, res: Res
         } : {}),
         // Vehicle fields — attach full object so frontend can display all details
         ...(vehicle ? { _vehicle: vehicle } : {}),
+        // Feedback/Review fields
+        ...(feedback ? { _feedback: feedback } : {}),
+        // Matched Captain fields
+        ...(captain ? { _captain: captain } : {}),
       };
     });
 
@@ -367,7 +426,47 @@ router.get("/bookings/:id", requireAuth, requireAdmin, async (req: Request, res:
       res.status(404).json({ success: false, message: "Booking not found" });
       return;
     }
-    res.json({ success: true, data: { id: doc.id, ...doc.data() } });
+    
+    const bookingData = { id: doc.id, ...doc.data() };
+    
+    // Fetch associated feedback/review
+    let feedback: Record<string, unknown> | null = null;
+    try {
+      const fbSnapshot = await db
+        .collection("feedbacks")
+        .where("booking_id", "==", doc.id)
+        .limit(1)
+        .get();
+      if (!fbSnapshot.empty) {
+        const fbDoc = fbSnapshot.docs[0];
+        feedback = { id: fbDoc.id, ...fbDoc.data() };
+      }
+    } catch (fbErr) {
+      console.error(`[Firebase bookings] Failed to fetch feedback for booking ${doc.id}:`, fbErr);
+    }
+
+    // Fetch matched captain details
+    let captain: Record<string, unknown> | null = null;
+    const acceptedCaptainId = (bookingData as Record<string, any>).acceptedCaptainId as string | undefined;
+    if (acceptedCaptainId) {
+      try {
+        const capDoc = await db.collection("captains").doc(acceptedCaptainId).get();
+        if (capDoc.exists) {
+          captain = { id: capDoc.id, ...capDoc.data() };
+        }
+      } catch (capErr) {
+        console.error(`[Firebase bookings] Failed to fetch captain ${acceptedCaptainId} details:`, capErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...bookingData,
+        _feedback: feedback,
+        _captain: captain,
+      },
+    });
   } catch (err: unknown) {
     res.status(500).json({
       success: false,
