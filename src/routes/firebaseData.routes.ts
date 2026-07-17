@@ -356,7 +356,7 @@ router.get("/bookings", requireAuth, requireAdmin, async (req: Request, res: Res
     const captainIds = [
       ...new Set(
         bookings
-          .map((b) => b.acceptedCaptainId as string | undefined)
+          .map((b) => (b.captainId || b.acceptedCaptainId) as string | undefined)
           .filter((id): id is string => !!id)
       ),
     ];
@@ -385,7 +385,8 @@ router.get("/bookings", requireAuth, requireAdmin, async (req: Request, res: Res
       const user = uid ? userMap[uid] : undefined;
       const vehicle = vid ? vehicleMap[vid] : undefined;
       const feedback = b.id ? feedbackMap[b.id as string] : undefined;
-      const captain = b.acceptedCaptainId ? captainMap[b.acceptedCaptainId as string] : undefined;
+      const capId = (b.captainId || b.acceptedCaptainId) as string | undefined;
+      const captain = capId ? captainMap[capId] : undefined;
 
       return {
         ...b,
@@ -447,15 +448,15 @@ router.get("/bookings/:id", requireAuth, requireAdmin, async (req: Request, res:
 
     // Fetch matched captain details
     let captain: Record<string, unknown> | null = null;
-    const acceptedCaptainId = (bookingData as Record<string, any>).acceptedCaptainId as string | undefined;
-    if (acceptedCaptainId) {
+    const capId = ((bookingData as Record<string, any>).captainId || (bookingData as Record<string, any>).acceptedCaptainId) as string | undefined;
+    if (capId) {
       try {
-        const capDoc = await db.collection("captains").doc(acceptedCaptainId).get();
+        const capDoc = await db.collection("captains").doc(capId).get();
         if (capDoc.exists) {
           captain = { id: capDoc.id, ...capDoc.data() };
         }
       } catch (capErr) {
-        console.error(`[Firebase bookings] Failed to fetch captain ${acceptedCaptainId} details:`, capErr);
+        console.error(`[Firebase bookings] Failed to fetch captain ${capId} details:`, capErr);
       }
     }
 
