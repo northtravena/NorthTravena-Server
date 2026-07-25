@@ -5,6 +5,7 @@ import { catchAsync } from "../utils/catchAsync.js";
 import { ApiError } from "../utils/ApiError.js";
 import { parseObjectId } from "../utils/mongoose.js";
 import { assertLngLatPair, createPoint } from "../utils/geo.js";
+import { parsePagination, paginatedResponse } from "../utils/pagination.js";
 
 export const adminListUsers = catchAsync(async (req: Request, res: Response) => {
   const q: Record<string, unknown> = {};
@@ -24,16 +25,13 @@ export const adminListUsers = catchAsync(async (req: Request, res: Response) => 
     ];
   }
 
-  const rows = await User.find(q)
-    .select("-password")
-    .sort({ createdAt: -1 })
-    .lean();
+  const { page, limit, skip } = parsePagination(req.query);
+  const [rows, total] = await Promise.all([
+    User.find(q).select("-password").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    User.countDocuments(q),
+  ]);
 
-  res.json({
-    success: true,
-    data: rows,
-    count: rows.length,
-  });
+  res.json(paginatedResponse(rows, total, page, limit));
 });
 
 export const adminGetUser = catchAsync(async (req: Request, res: Response) => {

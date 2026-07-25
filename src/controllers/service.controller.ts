@@ -3,6 +3,7 @@ import { Service } from "../models/service.model.js";
 import { catchAsync } from "../utils/catchAsync.js";
 import { ApiError } from "../utils/ApiError.js";
 import { parseObjectId } from "../utils/mongoose.js";
+import { parsePagination, paginatedResponse } from "../utils/pagination.js";
 
 /** Public catalog: active vehicles, optional filter by category name. */
 export const listPublicServices = catchAsync(async (req: Request, res: Response) => {
@@ -26,8 +27,12 @@ export const adminListServices = catchAsync(async (req: Request, res: Response) 
   const status = req.query.status as string | undefined;
   if (serviceType) q.serviceType = serviceType;
   if (status === "active" || status === "inactive") q.status = status;
-  const rows = await Service.find(q).sort({ createdAt: -1 }).lean();
-  res.json({ success: true, data: rows });
+  const { page, limit, skip } = parsePagination(req.query);
+  const [rows, total] = await Promise.all([
+    Service.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Service.countDocuments(q),
+  ]);
+  res.json(paginatedResponse(rows, total, page, limit));
 });
 
 export const adminCreateService = catchAsync(async (req: Request, res: Response) => {

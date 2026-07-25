@@ -4,6 +4,7 @@ import { UserService } from "../models/userService.model.js";
 import { catchAsync } from "../utils/catchAsync.js";
 import { ApiError } from "../utils/ApiError.js";
 import { parseObjectId } from "../utils/mongoose.js";
+import { parsePagination, paginatedResponse } from "../utils/pagination.js";
 
 function assertUserServiceStatus(v: string): asserts v is UserServiceStatus {
   if (!USER_SERVICE_STATUSES.includes(v as UserServiceStatus)) {
@@ -67,8 +68,12 @@ export const adminListUserServices = catchAsync(async (req: Request, res: Respon
     assertUserServiceStatus(status);
     q.status = status;
   }
-  const rows = await UserService.find(q).sort({ createdAt: -1 }).populate("userId", "email fullName phoneNo").lean();
-  res.json({ success: true, data: rows });
+  const { page, limit, skip } = parsePagination(req.query);
+  const [rows, total] = await Promise.all([
+    UserService.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).populate("userId", "email fullName phoneNo").lean(),
+    UserService.countDocuments(q),
+  ]);
+  res.json(paginatedResponse(rows, total, page, limit));
 });
 
 export const adminUpdateUserServiceStatus = catchAsync(async (req: Request, res: Response) => {

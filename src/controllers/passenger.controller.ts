@@ -6,6 +6,7 @@ import { catchAsync } from "../utils/catchAsync.js";
 import { ApiError } from "../utils/ApiError.js";
 import { parseObjectId } from "../utils/mongoose.js";
 import { buildRoutePoint } from "../utils/geo.js";
+import { parsePagination, paginatedResponse } from "../utils/pagination.js";
 
 function assertMatchStatus(v: string): asserts v is MatchStatus {
     if (!MATCH_STATUSES.includes(v as MatchStatus)) {
@@ -86,13 +87,19 @@ export const getAllPassengers = catchAsync(async (req: Request, res: Response) =
         q.matchStatus = matchStatus;
     }
 
-    const rows = await Passenger.find(q)
-        .populate("userId", "fullName email phoneNo")
-        .populate("assignedCaptain", "fullName phone routeFrom routeTo")
-        .sort({ createdAt: -1 })
-        .lean({ virtuals: true });
+    const { page, limit, skip } = parsePagination(req.query);
+    const [rows, total] = await Promise.all([
+        Passenger.find(q)
+            .populate("userId", "fullName email phoneNo")
+            .populate("assignedCaptain", "fullName phone routeFrom routeTo")
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean({ virtuals: true }),
+        Passenger.countDocuments(q),
+    ]);
 
-    res.json({ success: true, data: rows, count: rows.length });
+    res.json(paginatedResponse(rows, total, page, limit));
 });
 
 export const getPassengerById = catchAsync(async (req: Request, res: Response) => {

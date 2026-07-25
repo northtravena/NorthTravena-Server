@@ -5,6 +5,7 @@ import { catchAsync } from "../utils/catchAsync.js";
 import { ApiError } from "../utils/ApiError.js";
 import { parseObjectId } from "../utils/mongoose.js";
 import { assertLngLatPair, buildRoutePoint, createPoint } from "../utils/geo.js";
+import { parsePagination, paginatedResponse } from "../utils/pagination.js";
 
 function assertVehicleType(v: string): asserts v is CaptainVehicleType {
   if (!CAPTAIN_VEHICLE_TYPES.includes(v as CaptainVehicleType)) {
@@ -93,8 +94,12 @@ export const getAllCaptains = catchAsync(async (req: Request, res: Response) => 
     assertCaptainStatusFilter(status);
     q.status = status;
   }
-  const rows = await Captain.find(q).sort({ createdAt: -1 }).lean({ virtuals: true });
-  res.json({ success: true, data: rows, count: rows.length });
+  const { page, limit, skip } = parsePagination(req.query);
+  const [rows, total] = await Promise.all([
+    Captain.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).lean({ virtuals: true }),
+    Captain.countDocuments(q),
+  ]);
+  res.json(paginatedResponse(rows, total, page, limit));
 });
 
 export const getCaptainById = catchAsync(async (req: Request, res: Response) => {

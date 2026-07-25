@@ -862,4 +862,55 @@ router.patch("/captains/:id/reject", requireAuth, requireAdmin, async (req: Requ
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/firebase/wallet-transactions
+// Fetch all documents from the "wallet_transactions" Firestore collection (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/wallet-transactions", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    const snapshot = await db.collection("wallet_transactions").get();
+    res.json({ success: true, data: snapshotToArray(snapshot), count: snapshot.size });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to fetch wallet transactions",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/firebase/captain-payments
+// Fetch all documents from the "captain_payments" Firestore collection (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/captain-payments", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    const snapshot = await db.collection("captain_payments").get();
+    res.json({ success: true, data: snapshotToArray(snapshot), count: snapshot.size });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to fetch captain payments",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/firebase/ride-bookings
+// Fetch all documents from the "ride_bookings" Firestore collection (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/ride-bookings", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    const snapshot = await db.collection("ride_bookings").get();
+    res.json({ success: true, data: snapshotToArray(snapshot), count: snapshot.size });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to fetch ride bookings",
+    });
+  }
+});
+
 export default router;

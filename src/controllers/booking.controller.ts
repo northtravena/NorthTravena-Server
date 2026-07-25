@@ -6,6 +6,7 @@ import { catchAsync } from "../utils/catchAsync.js";
 import { ApiError } from "../utils/ApiError.js";
 import { parseObjectId } from "../utils/mongoose.js";
 import { sendEmail } from "../utils/mailer.js";
+import { parsePagination, paginatedResponse } from "../utils/pagination.js";
 
 /** Accepts `oneWay`, `oneway`, `roundTrip`, `monthly`, etc. */
 function normalizeTripType(raw: string): TripType {
@@ -115,8 +116,12 @@ export const adminListBookings = catchAsync(async (req: Request, res: Response) 
     assertBookingStatus(status);
     q.status = status;
   }
-  const rows = await Booking.find(q).sort({ createdAt: -1 }).populate("userId", "email fullName phoneNo").lean();
-  res.json({ success: true, data: rows });
+  const { page, limit, skip } = parsePagination(req.query);
+  const [rows, total] = await Promise.all([
+    Booking.find(q).sort({ createdAt: -1 }).skip(skip).limit(limit).populate("userId", "email fullName phoneNo").lean(),
+    Booking.countDocuments(q),
+  ]);
+  res.json(paginatedResponse(rows, total, page, limit));
 });
 
 export const adminGetBooking = catchAsync(async (req: Request, res: Response) => {
