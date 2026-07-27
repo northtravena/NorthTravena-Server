@@ -1,6 +1,4 @@
 import { db } from "../config/firebase.js";
-import mongoose from "mongoose";
-import { env } from "../config/env.js";
 
 async function checkAllSources() {
   console.log("=== 1. FIREBASE users COLLECTION ===");
