@@ -658,6 +658,69 @@ router.get("/notifications", requireAuth, requireAdmin, async (_req: Request, re
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/v1/firebase/notifications/read-all
+// Mark all notifications as read in Firestore (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch("/notifications/read-all", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    const snapshot = await db.collection("notifications").get();
+    
+    if (!snapshot.empty) {
+      const batchSize = 400;
+      let batch = db.batch();
+      let count = 0;
+
+      for (const doc of snapshot.docs) {
+        if (!doc.data().read) {
+          batch.update(doc.ref, { read: true, readAt: new Date().toISOString() });
+          count++;
+          if (count % batchSize === 0) {
+            await batch.commit();
+            batch = db.batch();
+          }
+        }
+      }
+      if (count % batchSize !== 0) {
+        await batch.commit();
+      }
+      console.log(`[Firebase Notifications] Marked ${count} notifications as read in Firestore.`);
+    }
+
+    res.json({ success: true, message: "All notifications marked as read" });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to mark all notifications read",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/v1/firebase/notifications/:id/read
+// Mark a single notification as read in Firestore (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch("/notifications/:id/read", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const db = await getDb();
+    const ref = db.collection("notifications").doc(id);
+    const doc = await ref.get();
+
+    if (doc.exists) {
+      await ref.update({ read: true, readAt: new Date().toISOString() });
+    }
+
+    res.json({ success: true, message: "Notification marked as read" });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to mark notification read",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/firebase/users
 // Fetch all documents from the "users" Firestore collection (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -913,4 +976,198 @@ router.get("/ride-bookings", requireAuth, requireAdmin, async (_req: Request, re
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/firebase/captains/:id/topup
+// Top up a captain's wallet balance in Firestore (admin only)
+// Body: { amount: number, notes?: string }
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/captains/:id/topup", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const captainId = req.params.id;
+    const { amount, notes } = req.body as { amount?: number; notes?: string };
+    const topupAmount = Number(amount);
+
+    if (!topupAmount || isNaN(topupAmount) || topupAmount <= 0) {
+      res.status(400).json({ success: false, message: "Valid positive amount is required" });
+      return;
+    }
+
+    const db = await getDb();
+    const captainRef = db.collection("captains").doc(captainId);
+    const captainDoc = await captainRef.get();
+
+    if (!captainDoc.exists) {
+      res.status(404).json({ success: false, message: "Captain not found" });
+      return;
+    }
+
+    const captainData = captainDoc.data() || {};
+    const currentBalance = Number(captainData.walletBalance ?? captainData.wallet ?? 0);
+    const newBalance = currentBalance + topupAmount;
+
+    // Update captain wallet balance
+    await captainRef.update({
+      walletBalance: newBalance,
+      wallet: newBalance,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Create record in wallet_transactions
+    const txRef = await db.collection("wallet_transactions").add({
+      captainId,
+      captain_id: captainId,
+      captainName: captainData.fullName || captainData.name || "Captain",
+      amount: topupAmount,
+      type: "topup",
+      notes: notes || "Wallet top up by admin",
+      previousBalance: currentBalance,
+      newBalance,
+      createdAt: new Date().toISOString(),
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully topped up PKR ${topupAmount}`,
+      data: {
+        captainId,
+        previousBalance: currentBalance,
+        newBalance,
+        transactionId: txRef.id,
+      },
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to top up captain wallet",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/v1/firebase/captains/:id/suspend
+// Suspend or reinstate a captain in Firestore (admin only)
+// Body: { isSuspended: boolean, reason?: string }
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch("/captains/:id/suspend", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const captainId = req.params.id;
+    const { isSuspended, reason } = req.body as { isSuspended?: boolean; reason?: string };
+
+    if (typeof isSuspended !== "boolean") {
+      res.status(400).json({ success: false, message: "isSuspended (boolean) is required" });
+      return;
+    }
+
+    const db = await getDb();
+    const captainRef = db.collection("captains").doc(captainId);
+    const captainDoc = await captainRef.get();
+
+    if (!captainDoc.exists) {
+      res.status(404).json({ success: false, message: "Captain not found" });
+      return;
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      isSuspended,
+      suspended: isSuspended,
+      suspensionReason: isSuspended ? (reason || "Suspended by admin") : null,
+      suspendedAt: isSuspended ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await captainRef.update(updatePayload);
+    const updatedDoc = await captainRef.get();
+
+    res.json({
+      success: true,
+      message: isSuspended ? "Captain has been suspended" : "Captain suspension lifted",
+      data: { id: updatedDoc.id, ...updatedDoc.data() },
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to update suspension status",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/firebase/captains/:id/wallet-transactions
+// Fetch wallet transactions for a specific captain (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/captains/:id/wallet-transactions", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const captainId = req.params.id;
+    const db = await getDb();
+
+    // Query transactions by captainId or captain_id
+    let snapshot = await db.collection("wallet_transactions").where("captainId", "==", captainId).get();
+    if (snapshot.empty) {
+      snapshot = await db.collection("wallet_transactions").where("captain_id", "==", captainId).get();
+    }
+
+    res.json({ success: true, data: snapshotToArray(snapshot), count: snapshot.size });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to fetch captain wallet transactions",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/firebase/captains/:id/payable-rides
+// Fetch unpaid / payable rides for a specific captain (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/captains/:id/payable-rides", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const captainId = req.params.id;
+    const db = await getDb();
+
+    let snapshot = await db.collection("ride_bookings").where("captainId", "==", captainId).get();
+    if (snapshot.empty) {
+      snapshot = await db.collection("ride_bookings").where("captain_id", "==", captainId).get();
+    }
+    if (snapshot.empty) {
+      snapshot = await db.collection("bookings").where("acceptedCaptainId", "==", captainId).get();
+    }
+
+    const items = snapshotToArray(snapshot).filter((item: Record<string, unknown>) => {
+      const isUnpaid = item.paymentStatus === "unpaid" || item.isPaid === false || item.paid === false;
+      return isUnpaid;
+    });
+
+    res.json({ success: true, data: items, count: items.length });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to fetch payable rides",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/firebase/captains/:id/payments
+// Fetch recorded payment history for a specific captain (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/captains/:id/payments", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const captainId = req.params.id;
+    const db = await getDb();
+
+    let snapshot = await db.collection("captain_payments").where("captainId", "==", captainId).get();
+    if (snapshot.empty) {
+      snapshot = await db.collection("captain_payments").where("captain_id", "==", captainId).get();
+    }
+
+    res.json({ success: true, data: snapshotToArray(snapshot), count: snapshot.size });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to fetch captain payments",
+    });
+  }
+});
+
 export default router;
+

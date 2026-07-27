@@ -14,8 +14,8 @@ import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import { User } from "../models/user.model.js";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@gmail.com";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin123";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@northtravena.com";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "12345123";
 const ADMIN_NAME = process.env.ADMIN_NAME ?? "Admin";
 const ADMIN_PHONE = process.env.ADMIN_PHONE ?? "0000000000";
 
